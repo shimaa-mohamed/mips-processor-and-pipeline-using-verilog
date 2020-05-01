@@ -1,0 +1,959 @@
+`timescale 1ns/1ns
+
+// the mips big module
+module fMipspipeline ();
+
+reg reset;reg clk;
+
+initial
+begin
+clk =0;
+//reset=1;
+//#1
+//reset=0;
+end 
+
+//for debugging
+initial begin
+$monitor("result is : %b and data2 is : %b , clk is:%d ,",aluTodataMem,data2Tomux,clk);
+end
+
+always begin
+#5 clk = ~clk;
+end
+
+
+wire[31:0]current_pc;
+
+wire[31:0] instruction;
+
+//connecting wires
+wire[4:0]muxToreg;
+wire [31:0] extendTomux , data2Tomux , muxToalu , data1Toalu , aluTodataMem,
+	    readDatamem , writeData_toreg ,sll2Toadd,
+	    addTomux , muxtopc;
+reg[31:0]pcToadd  , jumpaddress;
+wire zerotoand , andout;
+wire[31:0] muxtomux;
+
+//wires bus
+wire[4:0] inst_21 , inst_16 , inst_11,inst_6 ;
+wire[25:0] inst_025;
+wire[15:0] inst_015;
+wire[5:0]inst_05;
+
+
+//control wires
+wire [1:0]regDst , aluOp , memtoreg, jump;
+wire[4:0] inst_04;
+wire[5:0] inst_26;
+wire[3:0] alucntrl_out , addTojump;
+wire[27:0]outsll_conc;
+wire branch  , memread , memwrite ,alusrc , regwrite;
+wire[31:0] addTobranchalu;
+
+
+//inital
+initial begin  
+//$monitor ("%b", instruction);
+//pc = 32'b0;
+
+pcToadd = 32'b0;
+
+//for debug 
+
+//Im[0] = 32'b00000001000010010101000000100000;
+
+
+end
+
+//always
+always @(negedge clk)
+begin
+//instruction <= Im[pc>>2];
+jumpaddress <= {addTojump,outsll_conc};
+
+
+//pc <= muxtopc;
+
+end
+initial begin 
+$monitor("addtojump =%b, outconc=%b , jumpaddr=%b ",addTojump,outsll_conc,jumpaddress);
+end
+//always @(posedge clk )
+//begin
+/*if(reset)
+current_pc <= 32'b0;*/
+//else
+
+//current_pc <= muxtomux;
+
+
+//end
+
+assign inst_21 = instruction[25:21];
+assign inst_015 = instruction[15:0];
+assign inst_16 = instruction[20:16];
+assign inst_11 = instruction[15:11];
+assign inst_025 = instruction[25:0];
+assign inst_26 = instruction[31:26];
+assign inst_05 = instruction[5:0];
+assign inst_6 = instruction[10:6];
+assign inst_04=instruction[4:0];
+assign addTojump=addTobranchalu[31:28];
+
+//////////////////////////
+wire[31:0]inst_out,pcPlus4_out;
+wire flush,hold,holdcntrl,holdpc;
+wire[1:0]aluop_out,memtoreg_out ;
+wire alusrc_out ,regdst_out, memwrite_out,memread_out , regwrite_out;
+wire[4:0]rs_out,rt_out,rd_out;
+wire[31:0]ex_pcPlus4_out,data1_out, data2_out ,signextend_out,rs_mux_out , rt_mux_out;
+//assign hold=0;
+//assign holdpc=0;
+//assign holdcntrl=0;
+assign flush=0;
+//wire outcomp;
+wire compout;
+wire ex_memwrite_out, ex_memread_out,ex_regwrite_out;
+wire[1:0] ex_memtoreg_out;
+wire [31:0] ex_aluout_out, ex_writedata_out;
+wire[4:0]ex_writereg_out;
+wire mem_regwrite_out;
+wire[4:0]mem_writereg_out;
+wire[1:0] mem_memtoreg_out;
+wire[31:0]mem_aluout_out,mem_read_data_out;
+////////////////////////////
+
+//fpc pc1(muxtopc,out_pc);
+pc pc1(clk ,reset,muxtomux , holdpc , current_pc);
+if_id ifid1 (clk ,addTobranchalu ,hold , instruction,flush,
+		     inst_out ,pcPlus4_out);
+comparator comp(clk ,data1Toalu, data2Tomux ,compout);
+id_ex id1(clk , holdcntrl ,regwrite , memtoreg , memwrite , memread,
+                    alusrc, regDst , aluOp , addTobranchalu, data1Toalu,
+                    data2Tomux , extendTomux, inst_out[25:21], inst_out[20:16], inst_out[15:11],
+                    aluop_out ,  alusrc_out , regdst_out, memwrite_out,
+                    memread_out , regwrite_out ,memtoreg_out,rs_out,
+                    rt_out,rd_out,pcPlus4_out,data1_out,
+                    data2_out ,signextend_out);
+ex_mem ex1( clk ,holdcntrl, memwrite_out,memread_out, memtoreg_out,regwrite_out,aluTodataMem,
+                   data2_out,muxToreg,ex_memwrite_out, ex_memread_out,ex_regwrite_out,
+                   ex_memtoreg_out,ex_aluout_out,ex_writedata_out,ex_writereg_out);
+mem_wb memwb(clk,holdcntrl, ex_regwrite_out, ex_memtoreg_out, ex_aluout_out,readDatamem,
+		ex_writereg_out,
+                mem_regwrite_out, mem_memtoreg_out,mem_aluout_out,mem_read_data_out,
+                 mem_writereg_out);
+forwarding forward( ex_regwrite_out , ex_writereg_out , mem_writereg_out,mem_regwrite_out,
+                   rs_out, rt_out , rs_sel , rt_sel);
+rs_mux mpipe(data1_out ,writeData_toreg , ex_aluout_out,rs_sel,rs_mux_out);
+rt_mux m2pipe(data2_out ,writeData_toreg , ex_aluout_out,rt_sel,rt_mux_out);
+hazard h1(memread_out,rt_out,inst_out,holdpc,hold,holdcntrl);
+finstrmem im1 (current_pc,instruction);
+fcontorl c1 (inst_out[31:26] ,inst_out[5:0], regDst,jump,
+		branch ,memread,memtoreg,
+		aluOp, memwrite,alusrc,
+		regwrite);
+
+
+ffiveMux m1(inst_out[20:16],inst_out[15:11] ,inst_out[4:0],regDst , muxToreg); 
+
+freg_file reg1 (inst_out[25:21] , inst_out[20:16], regwrite , muxToreg,writeData_toreg , addTobranchalu,data1Toalu, 
+		 data2Tomux , clk,inst_26,regDst ); //regfile
+
+
+
+fsign_extend s1(inst_out[15:0], extendTomux);
+
+fthirtyTwoMuxAlu m2(data2Tomux,extendTomux ,alusrc , muxToalu);
+
+fAlu_control cntrl1 (aluOp , inst_out[5:0] , alucntrl_out);
+
+fAlu alu1(clk,data1Toalu , muxToalu,inst_out[10:6], alucntrl_out, aluTodataMem , zerotoand);
+
+fdataMemory dm(clk,aluTodataMem , data2Tomux, memwrite,readDatamem);
+
+
+fthirtyTwoMux m3(aluTodataMem,readDatamem ,addTobranchalu,memtoreg ,writeData_toreg);
+
+fadd_4 add(current_pc,addTobranchalu);
+
+fshiftleft2_concatenation sc(inst_025 ,outsll_conc );
+/*initial begin
+#5
+$monitor("%b",muxtopc);
+end*/
+
+fshiftleft2 s5(extendTomux , sll2Toadd);
+
+fadd add1(sll2Toadd ,addTobranchalu ,  addTomux);
+
+and (andout,compout, branch);
+
+fthirtyTwoMuxbranch m4 (pcPlus4_out,addTomux ,andout,muxtomux);
+
+//fthirtyTwoMuxjump m5 (muxtomux , jumpaddress ,data1Toalu, jump , muxtopc );
+
+
+
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+//-------------------------------------------------------------
+
+//5 bit in out  mux
+module ffiveMux (x,y,ra,sel , z);
+
+input [4:0] x, y,ra ;
+input [1:0] sel;
+output reg[4:0] z;
+
+always @(sel ,x,y)
+begin
+if(sel == 00) z <= x;
+else if (sel == 01) z<=y;
+else if (sel == 10) z<=ra;
+else z=5'b00000;
+
+end
+
+endmodule 
+//_____________________--------------__________________________
+
+//32 in out mux
+module fthirtyTwoMuxbranch(x,y ,sel ,z);
+
+input [31:0] x, y ;
+input  sel;
+output reg[31:0] z;
+
+always @(sel ,x,y)
+begin
+if(sel == 0) z <= x;
+else if (sel == 1) z<=y;
+else z=32'b00000000_00000000_00000000_00000000;
+//$monitor("%d",z);
+end
+
+endmodule 
+module fthirtyTwoMuxjump (x,y,ra ,sel , z);
+
+input [31:0] x, y,ra ;
+input[1:0]  sel;
+output reg[31:0] z;
+
+always @(sel ,x,y,ra)
+begin
+if(sel == 00) z <= x;
+else if (sel == 01) z<=y;
+else /*if (sel == 10)*/ z<=ra;
+//else z=32'b00000000_00000000_00000000_00000000;
+
+end
+
+endmodule 
+module fthirtyTwoMux(x,y,ra ,sel , z);
+
+input [31:0] x, y ,ra;
+input[1:0] sel;
+output reg[31:0] z;
+
+always @(sel ,x,y,ra)
+begin
+if(sel == 00) z <= x;
+else if (sel == 01) z<=y;
+else /*if (sel == 10) */z<=ra;
+//else z=32'b00000000_00000000_00000000_00000000;
+
+end
+
+endmodule
+module fthirtyTwoMuxAlu (x,y ,sel , z);
+
+input [31:0] x, y ;
+input  sel;
+output reg[31:0] z;
+
+always @(sel ,x,y)
+begin
+if(sel == 0) z <= x;
+else if (sel == 1) z<=y;
+else z=32'b00000000_00000000_00000000_00000000;
+
+end
+
+endmodule 
+
+//-------------------------------------------------
+// add 4
+
+module fadd_4 (input [31:0] inst , output[31:0] next_inst);
+assign next_inst = inst + 32'b00000000_00000000_00000000_00000100 ;
+initial begin
+//$monitor("%b",next_inst);
+end
+
+endmodule
+//---------------------------------------------------
+//sign extend
+
+module fsign_extend (input [15:0]in , output[31:0] out);
+reg[15:0]a,b;
+initial begin
+a<=16'b0;
+b<=16'b1111111111111111;
+
+end
+ 
+assign out = (in[15]==0) ? {a,in}:{b,in} ;
+
+
+endmodule 
+
+//------------------------------------------------
+
+// shift left 2 of 32-bits to 32-bits
+
+module fshiftleft2(input [31:0] in , output [31:0] out);
+
+assign out = in << 2;
+
+endmodule 
+
+//--------------------------------------------------
+// shift left2 (it concatenates 2 zeros in LSB ex: 11 ---> 1100)
+// it takes 26-bits input and outputs 28-bits output
+module fshiftleft2_concatenation (input [25:0] in , output [27:0] out);
+
+assign out  = {in , 2'b00};
+
+
+endmodule 
+//---------------------------------------------------
+
+// alu , supports (and, +,-, stl , nor)
+module fAlu(input clk,input [31:0]a , input [31:0]b,input[4:0]s, input[3:0]alu_cntrl, output reg[31:0] out , output zero);
+
+assign zero = (a==b)? 1:0;
+
+always @ (a,b,alu_cntrl,clk)
+begin
+
+case (alu_cntrl)
+
+0 : out <= a&b; 
+1 : out <= a|b;
+2 : out <= a+b;  
+6 : out <= a-b; 
+7 : out <= (a < b) ? 1:0; 
+12 : out <= ~(a|b);
+14 : out<= b<<s;
+
+endcase
+
+
+
+end
+
+
+
+endmodule //alu
+//------------------------------------------------------
+// alu control takes aluop and function and return a value that will be input to alu
+
+module fAlu_control (input [1:0] op , input [5:0] fun , output reg[3:0] out);
+
+reg [7:0]total_info;
+initial begin
+//assign total_info = ;
+end
+
+
+always @ (op , fun)
+begin 
+
+casez ({op , fun})
+8'b00_zzzzzz: out <= 4'b0010;
+8'b01_zzzzzz: out <= 4'b0110;
+8'b10_100000: out <= 4'b0010;
+8'b10_100010: out <= 4'b0110;
+8'b10_100100: out <= 4'b0000;
+8'b10_100101: out <= 4'b0001;
+8'b10_101010: out <= 4'b0111;
+8'b10_000000: out <= 4'b1110;
+8'b11_zzzzzz: out <= 4'b0001;
+
+default out<= 4'b0000;
+
+
+endcase
+
+end
+
+
+
+endmodule 
+
+
+//------------------------------------------------
+//register file 
+module freg_file (input [4:0]r1 , input [4:0] r2 , input reg_write , input[4:0]write_reg,input [31:0]write_data , input[31:0]return_add,output[31:0]read_data1, 
+		 output[31:0]read_data2 , input clk,input[5:0]inst26,input[1:0]regdst);
+
+reg[31:0]regFile[0:31];
+reg[31:0]temp;
+integer file , i=0;
+
+assign read_data1 = regFile[r1];
+assign read_data2 = regFile[r2];
+initial begin
+file=$fopen("E:\mmken/regfile.txt");
+
+$fmonitor(file,"%b",regFile[i]);
+
+
+for (i=0; i<32; i=i+1)
+begin
+#1
+i=i;
+
+end
+
+
+
+end
+
+
+initial begin
+regFile[8] = 0 ;
+//regFile[9] = 1;
+//regFile[31] = return_add;
+//regFile[0] = 0;
+/*regFile[8] = 2 ;
+regFile[9] = 1;
+regFile[11] = 3;
+regFile[12] = 0;
+
+//regFile[4] = 4;
+regFile[4] = 2;
+regFile[16] = 5;
+//regFile[10]=2;
+//regFile[31]=9;
+regFile[25]=8;
+regFile[24]=6;*/
+end
+always @ (negedge clk)
+begin
+regFile[0] <= 0;
+if(reg_write ==1) //if
+begin 
+if(regdst==2'b10)begin regFile[31]=return_add; end
+else regFile[write_reg] <= write_data;
+
+end
+
+end
+
+
+endmodule 
+
+//----------------------------------------------
+//Data memory
+module fdataMemory(input clk,input [31:0] adress , input [31:0] writeData, input memwrite,output[31:0] read_data);
+
+reg[31:0]data[0:1023];
+
+//
+initial begin
+
+data[0] = 10;
+//data[1] = 7;
+//data[2]=4;
+end
+
+always @ (posedge clk)
+begin
+
+if(memwrite == 1) begin
+
+data[adress] <= writeData;
+end
+
+end
+assign read_data = data[adress];
+
+endmodule 
+
+//----------------------------------------------
+//main control unit of mips
+module fcontorl (input [5:0]in,input[5:0]inst05 , output reg[1:0] reg_dest,output reg[1:0] jump,
+		output reg branch ,output reg mem_read,output reg[1:0] memtoreg,
+		output reg [1:0]alu_op,output reg memwrite,output reg alu_src,
+		output reg regwrite);
+
+always@(in)
+begin
+
+case (in)
+//R-format
+6'b000000 : begin
+	if(inst05==8)begin
+		jump <= 10;
+		end
+	else begin
+            alu_op <= 2'b10; 
+	    reg_dest <=1;
+	    jump <= 00;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 0;
+	    alu_src <= 0;
+	    regwrite <= 1; 
+		end
+end
+//addi
+6'b001000:  begin alu_op <= 2'b00;
+	    reg_dest <=0;
+	    jump <= 00;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 0;
+	    alu_src <= 1;
+	    regwrite <= 1;end
+//lw
+6'b100011:  begin alu_op <= 2'b00;
+	    reg_dest <=0;
+	    jump <= 00;
+	    branch <= 0;
+            mem_read <= 1;
+	    memtoreg <= 1;
+	    memwrite <= 0;
+	    alu_src <= 1;
+	    regwrite <= 1; end
+//sw
+6'b101011 :begin  alu_op <= 2'b00;
+	    reg_dest <= 0;
+	    jump <= 00;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 1;
+	    alu_src <= 1;
+	    regwrite <= 0;end
+
+//beq
+6'b000100 : begin alu_op <= 2'b01;
+	    reg_dest <=0;
+	    jump <= 00;
+	    branch <= 1;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 0;
+	    alu_src <= 0;
+	    regwrite <= 0;end
+//ori
+6'b001101 : begin alu_op <= 2'b11;
+	    reg_dest <=0;
+	    jump <= 00;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 0;
+	    alu_src <= 1;
+	    regwrite <= 1;end
+
+//jump
+6'b000010 : begin alu_op <= 2'b10;
+	    reg_dest <=1;
+	    jump <= 01;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 0;
+	    memwrite <= 0;
+	    alu_src <= 0;
+	    regwrite <= 0; end
+
+//jal
+6'b000011 : begin alu_op <= 2'b10;
+	    reg_dest <=2'b10;
+	    jump <= 01;
+	    branch <= 0;
+            mem_read <= 0;
+	    memtoreg <= 2'b10;
+	    memwrite <= 0;
+	    alu_src <= 0;
+	    regwrite <= 1; end
+
+
+
+endcase
+
+
+
+end
+
+
+
+
+
+endmodule 
+
+
+
+
+
+//---------------------------------------------------
+//module add
+module fadd (input[31:0]in1 ,input[31:0]in2 ,output [31:0] out);
+
+assign out = in1 + in2;
+
+endmodule 
+//------------------------------------------
+
+//---------------------------
+module ftb_mips ();
+reg clk;
+//wire [31:0]out;
+reg reset;
+
+/*initial begin
+$display ("%b"  , out);
+#6
+$display ("%b"  , out);
+
+
+end
+*/
+initial
+begin
+clk=0;
+
+reset=1;
+#1
+reset=0;
+
+end
+always begin
+#5 clk = ~clk;
+end
+
+fMips m1 (clk,reset);
+
+endmodule
+//------------------------------------------------------------------------------
+module finstrmem (input reg[31:0] curr_pc,output reg[31:0] curr_instruction );
+reg[31:0] im[0:1023];
+initial begin
+$readmemb("E:\mmken/y.txt",im);
+end
+always@(curr_pc) begin
+curr_instruction<=im[curr_pc>>2];
+end
+endmodule
+//#########################
+module fpc(input reg[31:0] inpc,output reg[31:0] outpc);
+initial begin
+outpc=32'b0;
+//$monitor("%b",outpc);
+end
+/*always@(inpc)
+begin
+outpc<=inpc;
+end*/
+initial begin
+//$monitor("%b //%d",outpc,outpc);
+end
+endmodule
+
+//--------------------------------------------------
+/*module tb_alu;
+reg[31:0]a,b;
+reg[4:0]s;
+reg[3:0]alu_cntrl;
+wire[31:0]out;
+wire zero;
+reg clk;
+
+initial begin
+clk =0;
+end
+
+always begin 
+
+#5 clk = ~clk;
+end
+
+initial begin
+$monitor();
+
+#6 
+
+end
+
+
+
+
+
+
+
+fAlu(a , b,s, alu_cntrl
+	, out ,  zero);
+
+
+endmodule */
+
+
+
+
+//--------------------------------------------------
+module if_id (input clk , input[31:0] pcPlus4 , input hold , input [31:0]inst, input flush,
+		 output reg[31:0]inst_out , output reg[31:0]pcPlus4_out);
+
+
+always @(posedge clk)
+begin
+    if (hold == 1'b0)begin
+        pcPlus4_out <= pcPlus4;
+        inst_out  <= inst;
+    end
+    else if (flush == 1'b1)begin
+        inst_out <=32'b0;
+        pcPlus4_out <= pcPlus4;
+    end
+end 
+
+endmodule 
+module comparator (input clk, input[31:0]data1 , input [31:0]data2 , output  out  );
+
+assign out = (data1 == data2) ? 1'b1 : 1'b0;
+/*always@(posedge clk)begin
+    if(data1 == data2) out <= 1'b1;
+    else out <= 1'b0;
+end*/
+endmodule
+module id_ex (input clk , input holdcntrl ,input regwrite , input[1:0] memtoreg , input memwrite , input memread,
+                    input alusrc,input regdst , input [1:0]aluop , input[31:0]pcPlus4, input[31:0]data1,
+                    input[31:0]data2 , input [31:0]signextend, input[4:0]rs, input[4:0]rt, input[4:0]rd,
+                    output reg[1:0]aluop_out , output reg alusrc_out , output reg regdst_out, output reg memwrite_out,
+                    output reg memread_out , output reg regwrite_out , output reg[1:0] memtoreg_out, output reg[4:0]rs_out,
+                    output reg [4:0]rt_out, output reg[4:0] rd_out, output reg[31:0]pcPlus4_out, output reg[31:0]data1_out,
+                    output reg[31:0]data2_out , output reg[31:0]signextend_out);
+
+
+
+
+
+always @(posedge clk)
+begin
+    pcPlus4_out <= pcPlus4;
+    rs_out<= rs;
+    rt_out <= rt;
+    rd_out <= rd;
+    data1_out <= data1;
+    data2_out <= data2;
+    signextend_out <= signextend;
+
+    if(holdcntrl == 1'b0) begin
+    memread_out <= memread;
+    memwrite_out <= memwrite;
+    memtoreg_out <= memtoreg;
+    regwrite_out <= regwrite;
+    alusrc_out <= alusrc;
+    aluop_out <= aluop;
+    regdst_out<= regdst;
+    
+    end
+    else begin
+        memread_out <= 1'b0;
+        memwrite_out <= 1'b0;
+        memtoreg_out <= 1'b0;
+        regwrite_out <= 1'b0;
+        alusrc_out <=1'b0;
+        aluop_out <=2'b0;
+        regdst_out<= 1'b0;
+    end
+end
+
+
+
+endmodule
+module ex_mem( input clk ,input holdcntrl, input memwrite,input memread,input[1:0] memtoreg,input regwrite,
+		input [31:0]aluout,
+                   input [31:0]writedata,input [4:0]writereg, output reg memwrite_out, output reg memread_out,
+			 output reg regwrite_out,
+                   output reg[1:0] memtoreg_out, output reg [31:0]aluout_out, output reg[31:0]writedata_out, output reg[4:0]writereg_out
+);
+
+always @(posedge clk)
+begin
+   aluout_out <= aluout;
+   writedata_out <= writedata;
+   writereg_out <= writereg;
+
+   if(holdcntrl == 1'b0) begin
+   memwrite_out <= memwrite;
+   memread_out <= memread;
+   regwrite_out<= regwrite;
+   memtoreg_out<= memtoreg;
+   end
+   else begin
+      memwrite_out <= 1'b0;
+      memread_out <= 1'b0;
+      regwrite_out<= 1'b0;
+   memtoreg_out<= 2'b0; 
+   end
+ 
+end
+
+
+
+
+endmodule
+module mem_wb( input clk,input holdcntrl, input regwrite, input[1:0] memtoreg, input[31:0]aluout, input [31:0]read_data, input[4:0]writereg,
+                 output reg regwrite_out, output reg[1:0] memtoreg_out, output reg[31:0]aluout_out, output reg[31:0]read_data_out,
+                 output reg[4:0] writereg_out   
+);
+
+always @(posedge clk)
+begin
+    aluout_out <= aluout;
+    read_data_out <= read_data;
+    writereg_out <= writereg;
+
+    if(holdcntrl == 1'b0)begin
+    regwrite_out <= regwrite;
+    memtoreg_out <= memtoreg;
+    end
+    else begin
+     regwrite_out <=1'b0;
+    memtoreg_out <= 2'b0;       
+    end
+end
+
+
+
+
+endmodule
+module forwarding( input ex_mem_regwrite , input[4:0] ex_mem_writereg , input[4:0] mem_wb_writereg,
+		   input mem_wb_regwrite,
+                   input[4:0]id_ex_rs, input[4:0]id_ex_rt , output[1:0]rs_sel , output[1:0] rt_sel  
+);
+
+reg[1:0] rs_sel_temp, rt_sel_temp;
+
+always @(ex_mem_regwrite ,ex_mem_writereg , mem_wb_writereg,mem_wb_regwrite, id_ex_rs, id_ex_rt)
+begin
+    rs_sel_temp <=2'b0;
+    rt_sel_temp <= 2'b0;
+
+    if( (ex_mem_regwrite== 1'b1) && (ex_mem_writereg != 5'b0) && (ex_mem_writereg== id_ex_rs))
+    begin
+       rs_sel_temp <= 2'b10; 
+    end
+    else if ((mem_wb_regwrite== 1'b1) && (mem_wb_writereg != 5'b0) && (mem_wb_writereg==id_ex_rs) )
+    begin
+        rs_sel_temp <= 2'b01;
+    end
+//
+    if( (ex_mem_regwrite== 1'b1) && (ex_mem_writereg != 5'b0) && (ex_mem_writereg== id_ex_rt))
+    begin
+       rt_sel_temp <= 2'b10; 
+    end
+    else if ((mem_wb_regwrite== 1'b1) && (mem_wb_writereg != 5'b0) && (mem_wb_writereg==id_ex_rt) )
+    begin
+        rt_sel_temp <= 2'b01;
+    end
+
+end
+
+assign rs_sel = rs_sel_temp;
+assign rt_sel = rt_sel_temp;
+
+endmodule
+module rs_mux(input wire[31:0]data1_out , input wire[31:0]writeData_toreg , input[31:0]ex_aluout_out,input[1:0]rs_sel,
+              output reg[31:0]rs_mux_out   
+);
+
+always @(rs_sel or data1_out or writeData_toreg or ex_aluout_out ) begin
+    if(rs_sel == 2'b00) rs_mux_out <= data1_out;
+    else if (rs_sel == 2'b01) rs_mux_out <= writeData_toreg;
+    else rs_mux_out <= ex_aluout_out;
+end
+
+endmodule
+module rt_mux(input wire[31:0]data2_out , input wire[31:0]writeData_toreg , input[31:0]ex_aluout_out,input[1:0]rt_sel,
+              output reg[31:0]rt_mux_out   
+);
+
+always @(rt_sel or data2_out or writeData_toreg or ex_aluout_out ) begin
+    if(rt_sel == 2'b00) rt_mux_out <= data2_out;
+    else if (rt_sel == 2'b01) rt_mux_out <= writeData_toreg;
+    else rt_mux_out <= ex_aluout_out;
+end
+
+endmodule
+module pc (input clk ,input reset,input[31:0] in , input holdpc , output reg [31:0]out);
+
+//always @(posedge reset ) out <=32'b0;
+initial begin
+out<=32'b0;
+#10;
+end
+
+always @(posedge clk) begin
+    if (reset) out <= 32'b0;
+    else if (holdpc == 0) out <= in ;
+else if (holdpc==1)out<=in;
+    else out<=32'b0;
+end
+
+endmodule
+module hazard( input id_ex_memread, input [4:0]id_ex_rt, input[31:0]if_id_inst, output reg holdpc, 
+		output reg hold,output reg sel);
+
+initial begin
+    holdpc <= 0;
+    hold <= 0;
+    sel <= 0;
+end
+
+always @(id_ex_memread or id_ex_rt or if_id_inst) begin
+    
+    if((id_ex_memread == 1'b1 ) && ( (id_ex_rt == if_id_inst[20:16]) || (id_ex_rt == if_id_inst[25:21]) ))
+    begin
+        holdpc <= 1;
+        hold <=1;
+        sel <= 1;
+    end 
+    else if (if_id_inst[31:26] == 6'b000100)
+    begin
+        holdpc <= 1;
+        hold <=1;
+        sel <= 1;
+#7
+holdpc <= 0;
+        hold <=0;
+        sel <= 0;
+    end
+    else begin
+        holdpc <= 0;
+        hold <= 0;
+        sel <= 0;
+    end
+end
+
+
+endmodule
